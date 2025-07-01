@@ -1,0 +1,213 @@
+Résumé pour README / Prompt de Reprise – Projet Blob IA
+1. Description du projet
+Ce projet vise à modéliser le réseau de transports (métro/RER) de l’Île-de-France sous forme de graphe, et à calculer/visualiser l’affluence sur ce réseau de façon réaliste, dynamique (jour et heure) et modulaire.
+L’objectif : permettre des calculs de chemins optimisés selon divers critères (rapidité, confort, affluence…).
+
+2. Partie “GRAPHE”
+Données utilisées :
+
+Jeux de données Open Data sur : stations, correspondances, coordonnées GPS, affluences.
+
+Alignement/normalisation des noms de stations (“station_key” unique pour gérer synonymes et variantes).
+
+Construction du graphe :
+
+Les nœuds représentent chaque station/ligne (clé = station_key + ligne).
+
+Les arêtes sont :
+
+Adjacence directe (poids = distance géodésique en mètres, selon l’ordre des stations sur chaque ligne)
+
+“Correspondance physique” : connecte toutes les variantes d’une même station (pour simuler les correspondances, poids 0).
+
+Graphe non orienté, bidirectionnel.
+
+Export/Visualisation :
+
+Fichiers CSV : graph_nodes.csv, graph_edges.csv pour debug/analyse.
+
+Graphe sauvegardé en pickle : graph_blobia.gpickle.
+
+Visualisation matplotlib avec positionnement géographique et couleur selon ligne ou attributs.
+
+Scripts clés :
+
+build_graph.py : création du graphe à partir des datasets alignés et export.
+
+show_graph.py (optionnel) : visualisation rapide du graphe.
+
+3. Partie “AFFLUENCE”
+a) Calcul du score d’affluence station/ligne
+But : Attribuer un score réaliste d’affluence à chaque couple (station_key, ligne) :
+
+Score dans [0.15, 1.0] (1 = max affluence, 0.15 = min).
+
+Méthodologie :
+
+Big hubs (gares majeures, places, correspondances) : scores fixes élevés selon liste de hubs.
+
+Bonus correspondance : stations avec plusieurs lignes ont un bonus (même hors hubs).
+
+Propagation dégressive sur chaque ligne : les scores des hubs/correspondances “se propagent” (par multiplication, avec facteur de décroissance) aux stations voisines, dans les deux sens, jusqu’à remplir tout le réseau.
+
+Remplissage des trous : si jamais un score n’est pas attribué, on met le score min (sécurité).
+
+Scores par ligne : certains hubs voient leur score ajusté par la ligne (RER/métro), paramétrable.
+
+Export CSV : Stations_IDF_aligned_affluence.csv (une colonne “affluence_score” par station/ligne).
+
+Paramètres personnalisables :
+
+Facteur de propagation, score min, bonus correspondance, scores hubs, scores par ligne : tout est dans utils.py.
+
+b) Modulation dynamique (jour/heure)
+Profils d’affluence : Dictionnaires Python dans utils.py, associant un coefficient à chaque jour (PROFILE_JOUR) et chaque heure (PROFILE_HEURE) basé sur la réalité du trafic francilien (heures de pointe, week-end…).
+
+Score dynamique final :
+
+Pour une station/ligne donnée, à un jour/heure donné :
+
+python
+Copier
+Modifier
+affluence_dynamique = affluence_score * PROFILE_JOUR[jour] * PROFILE_HEURE[heure]
+Application sur le graphe : fonction dédiée pour appliquer les scores dynamiques aux nœuds du NetworkX Graph.
+
+c) Architecture/fichiers principaux
+affluence_builder/create_affluence.py : script d’attribution et propagation des scores base (création du CSV).
+
+affluence_builder/get_affluence.py : fonctions pour récupérer le mapping d’affluence dynamique (pour un jour/heure donné), et pour appliquer ce mapping à un graphe.
+
+affluence_builder/show_affluence.py : visualisation du graphe avec couleur des nœuds selon l’affluence dynamique pour un jour/heure.
+
+4. Points clés pour future utilisation
+Tout le système d’affluence est MODULAIRE : tu peux changer la façon de calculer/propager ou ajouter de nouveaux profils sans impacter la structure du graphe.
+
+Pour toute future fonction (calcul de chemin, dashboard, API, etc.) :
+
+Utilise simplement la fonction :
+
+python
+Copier
+Modifier
+mapping = get_affluence_mapping_from_file("data/Stations_IDF_aligned_affluence.csv", "lundi", 8)
+Ou, pour injection sur graphe :
+
+python
+Copier
+Modifier
+apply_affluence_to_graph(G, mapping)
+Les scores sont toujours accessibles dans les attributs des nœuds sous le nom affluence_dynamique.
+
+Visualisation simple pour déboguer ou illustrer le niveau d’affluence en fonction du contexte.
+
+Pour continuer le projet
+Le graphe et l’affluence dynamique sont prêts pour intégrer un algorithme de calcul d’itinéraire (Dijkstra, A, etc.) tenant compte de l’affluence.*
+
+Il suffira d’utiliser affluence_dynamique comme poids/cost supplémentaire dans les algos.
+
+📁 Dossier blobia — Description, Organisation, Utilisation
+Le dossier blobia regroupe toute la logique algorithmique et la gestion des données pour le planificateur de trajet Métro/RER Blob IA.
+
+🏗️ Organisation des modules
+blob_solver.py
+Implémente l’algorithme principal ("blob solver") de recherche de trajets optimaux entre stations, en tenant compte :
+
+du nombre d’arrêts,
+
+de l’affluence,
+
+du nombre de changements de ligne,
+
+selon un curseur utilisateur rapidité/affluence.
+Renvoie les meilleurs trajets ainsi qu’un score composite.
+
+mapping.py
+Gère :
+
+la normalisation des noms (stations, lignes, monuments),
+
+la correspondance entre monuments et stations proches (recherche géographique),
+
+des utilitaires pour l’alignement des données (ex : nettoyer les accents, fusionner branches de lignes).
+
+route.py
+Coordonne l’appel à l’algorithme Blob avec les bons paramètres, et renvoie une version "human readable" des trajets pour l’utilisateur ou le frontend.
+
+show_route.py
+Fournit des fonctions pour afficher de façon détaillée un trajet trouvé par le blob solver (texte, étapes, changements, scores…).
+
+visu_routes.py
+(Optionnel, visuel) : Génère une visualisation graphique des trajets explorés et du réseau, pour debug ou pour des présentations.
+
+__init__.py
+Rend le dossier importable comme module Python.
+
+🚦 Comment ça marche ?
+Entrée utilisateur
+L’utilisateur choisit :
+
+une station ou un monument de départ,
+
+une station ou un monument d’arrivée,
+
+le jour, l’heure, et un curseur rapidité <-> affluence.
+
+Recherche de stations
+Les modules mapping.py trouvent la ou les stations les plus proches (si monument).
+
+Appel à l’algo Blob
+Le blob_solver cherche les chemins dans le graphe pondéré (selon affluence, longueur, changements, etc.), optimisés selon le curseur.
+
+Retour du meilleur trajet
+Formaté par route.py/show_route.py : séquence des stations, lignes, points de changement, métriques associées.
+
+⚙️ Utilisation (en ligne de commande ou import Python)
+Lancer un calcul de trajet
+Exemple dans main.py (ou dans un module externe) :
+
+python
+Copier
+Modifier
+from blobia.route import find_best_route
+
+params = dict(
+    depart="Chatelet",
+    arrivee="Jardin de la Tour Eiffel",
+    jour="lundi",
+    heure=8,
+    curseur=5,  # 1=Rapide, 10=Affluence faible
+)
+
+result = find_best_route(**params)
+Afficher le trajet
+
+python
+Copier
+Modifier
+from blobia.show_route import print_route
+print_route(result)
+Utiliser en Streamlit
+Les modules sont pensés pour être réutilisés dans une interface web (Streamlit), il suffit d’importer les fonctions et d’appeler avec les paramètres issus de l’interface.
+
+📦 À savoir sur les données
+Les fichiers CSV de /data (stations, affluence, monuments, graph gpickle) sont nécessaires et doivent être à jour.
+
+Le graphe (graph_blobia.gpickle) doit être généré au préalable via les scripts du projet (graph_pipeline.py).
+
+🛠️ Debug, Visualisation avancée
+Pour le debug ou la présentation, visu_routes.py permet de visualiser tous les chemins explorés par l’algo (besoin de matplotlib et networkx).
+
+Les logs/DEBUG s’activent en passant verbose=True dans certaines fonctions.
+
+✨ Résumé
+Le dossier blobia :
+
+Centralise toute la logique "intelligente" de calcul de trajets.
+
+Fournit des modules prêts à l’emploi, importables dans n’importe quel script Python.
+
+Permet une intégration facile dans un script CLI ou une interface web.
+
+Sépare les étapes de recherche, formatage et affichage pour une évolutivité maximale.
+
