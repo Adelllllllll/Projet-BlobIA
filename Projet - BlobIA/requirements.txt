@@ -1,6 +1,2 @@
 streamlit
 pandas
-networkx
-geopy
-unidecode
-matplotlib
